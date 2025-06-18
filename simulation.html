@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docker Baseline Checker Simulation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .output-console {
+            background-color: #1E293B; /* slate-800 */
+            color: #E2E8F0; /* slate-200 */
+            font-family: 'monospace';
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .blinking-cursor {
+            display: inline-block;
+            width: 10px;
+            height: 1.2em;
+            background-color: #94A3B8; /* slate-400 */
+            animation: blink 1s step-end infinite;
+        }
+        @keyframes blink {
+            50% {
+                background-color: transparent;
+            }
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 flex items-center justify-center min-h-screen p-4 sm:p-6">
+
+    <div class="w-full max-w-4xl bg-slate-800 rounded-xl shadow-2xl overflow-hidden border border-slate-700">
+        <header class="p-6 border-b border-slate-700">
+            <h1 class="text-2xl font-bold text-white">Docker Baseline Checker</h1>
+            <p class="text-slate-400 mt-1">An interactive simulation of the linting and vulnerability scanning script.</p>
+        </header>
+
+        <main class="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Input Section -->
+            <div class="flex flex-col gap-6">
+                <div>
+                    <label for="dockerfile-content" class="block text-sm font-medium text-slate-300 mb-2">Dockerfile Content</label>
+                    <textarea id="dockerfile-content" rows="12" class="w-full p-3 bg-slate-900 border border-slate-600 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-shadow" placeholder="Paste your Dockerfile here..."></textarea>
+                    <div class="mt-2 flex gap-2">
+                        <button id="load-vulnerable" class="flex-1 text-sm bg-yellow-600 hover:bg-yellow-500 text-white font-semibold py-2 px-4 rounded-lg transition-colors">Load Vulnerable Test Case</button>
+                        <button id="load-clean" class="flex-1 text-sm bg-green-600 hover:bg-green-500 text-white font-semibold py-2 px-4 rounded-lg transition-colors">Load Clean Test Case</button>
+                    </div>
+                </div>
+                <div>
+                    <label for="image-name" class="block text-sm font-medium text-slate-300 mb-2">Image Name</label>
+                    <input type="text" id="image-name" value="my-test-app:1.0" class="w-full p-3 bg-slate-900 border border-slate-600 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-shadow">
+                </div>
+                 <div>
+                    <label for="security-distro" class="block text-sm font-medium text-slate-300 mb-2">Security Email</label>
+                    <input type="email" id="security-distro" value="security-alerts@example.com" class="w-full p-3 bg-slate-900 border border-slate-600 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-shadow">
+                </div>
+                <button id="run-checker" class="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold py-3 px-4 rounded-lg text-lg transition-transform hover:scale-105 shadow-lg">
+                    Run Checks
+                </button>
+            </div>
+
+            <!-- Output Section -->
+            <div class="flex flex-col">
+                <label class="block text-sm font-medium text-slate-300 mb-2">Simulation Output</label>
+                <div id="output" class="output-console w-full h-full flex-1 p-4 rounded-lg border border-slate-700 overflow-auto min-h-[300px] lg:min-h-0">
+                    <span class="text-slate-400">Ready to run checks...</span><span class="blinking-cursor"></span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // DOM Elements
+        const runButton = document.getElementById('run-checker');
+        const outputDiv = document.getElementById('output');
+        const dockerfileContent = document.getElementById('dockerfile-content');
+        const imageNameInput = document.getElementById('image-name');
+        const securityDistroInput = document.getElementById('security-distro');
+        const loadVulnerableBtn = document.getElementById('load-vulnerable');
+        const loadCleanBtn = document.getElementById('load-clean');
+
+        // Test Case Data
+        const vulnerableDockerfile = `# Dockerfile.vulnerable
+# This Dockerfile is intentionally insecure to test the scanner.
+
+FROM ubuntu:18.04
+
+LABEL maintainer="test@example.com"
+
+# HADOLINT WARNING: apt-get upgrade is not recommended.
+RUN apt-get update && apt-get upgrade -y
+RUN apt-get install -y --no-install-recommends curl
+
+ADD . /app
+
+WORKDIR /app
+
+CMD ["/bin/bash"]
+`;
+
+        const cleanDockerfile = `# Dockerfile.clean
+# This is a clean Dockerfile that should pass the checks.
+
+FROM python:3.11-slim-bookworm
+
+LABEL maintainer="test@example.com"
+
+# Good practice: Update, install, and clean up in a single RUN layer
+RUN apt-get update && \\
+    apt-get install -y --no-install-recommends curl && \\
+    rm -rf /var/lib/apt/lists/*
+
+COPY . /app
+
+WORKDIR /app
+
+CMD ["/bin/bash"]
+`;
+
+        // Event Listeners
+        loadVulnerableBtn.addEventListener('click', () => {
+            dockerfileContent.value = vulnerableDockerfile;
+            imageNameInput.value = 'vulnerable-app:1.0';
+        });
+
+        loadCleanBtn.addEventListener('click', () => {
+            dockerfileContent.value = cleanDockerfile;
+            imageNameInput.value = 'clean-app:1.0';
+        });
+        
+        runButton.addEventListener('click', runSimulation);
+
+        // Simulation Logic
+        async function runSimulation() {
+            const dockerfile = dockerfileContent.value;
+            const imageName = imageNameInput.value;
+            const securityDistro = securityDistroInput.value;
+
+            if (!dockerfile || !imageName || !securityDistro) {
+                printToOutput('ERROR: Please fill in all fields.', 'error');
+                return;
+            }
+            
+            runButton.disabled = true;
+            runButton.classList.remove('hover:bg-sky-500', 'hover:scale-105');
+            runButton.classList.add('bg-slate-500', 'cursor-not-allowed');
+            outputDiv.innerHTML = '';
+
+            await typeLine('$ ./docker-baseline-checker.sh Dockerfile ' + imageName, 'command');
+            
+            // 1. Simulate Hadolint
+            await typeLine('INFO: Linting Dockerfile with hadolint...', 'info');
+            await sleep(500);
+            const lintingResult = simulateHadolint(dockerfile);
+            if (!lintingResult.success) {
+                await typeLine(lintingResult.output, 'error', false);
+                await typeLine('ERROR: Dockerfile linting failed. Please fix the reported issues.', 'error');
+                finalizeRun();
+                return;
+            }
+            await typeLine(lintingResult.output, 'success', false);
+            await typeLine('INFO: Dockerfile linting completed successfully.', 'success');
+            await typeLine('--------------------------------------------------', 'dim');
+
+            // 2. Simulate Docker Build
+            await typeLine(`INFO: Building Docker image '${imageName}'...`, 'info');
+            await sleep(500);
+            await typeLine('Sending build context to Docker daemon... step 1/5', 'dim');
+            await sleep(300);
+            await typeLine('Successfully built sha256:f2d4e...', 'dim');
+            await sleep(200);
+            await typeLine(`Successfully tagged ${imageName}`, 'dim');
+            await sleep(500);
+            await typeLine('INFO: Docker image build successful.', 'success');
+            await typeLine('--------------------------------------------------', 'dim');
+
+            // 3. Simulate Trivy Scan
+            await typeLine(`INFO: Scanning image '${imageName}' for HIGH and CRITICAL vulnerabilities...`, 'info');
+            await sleep(1500);
+            const trivyResult = simulateTrivy(dockerfile, imageName);
+            await typeLine(trivyResult.report, trivyResult.foundVulnerabilities ? 'warning' : 'info', false);
+
+            // 4. Analyze and Notify
+            if (trivyResult.foundVulnerabilities) {
+                await typeLine(`WARNING: High-severity vulnerabilities were found in image '${imageName}'.`, 'warning');
+                await sleep(500);
+                await typeLine(`INFO: Preparing and sending vulnerability report to ${securityDistro}...`, 'info');
+                await sleep(1000);
+                await typeLine(`INFO: Vulnerability report successfully sent to ${securityDistro}.`, 'success');
+            } else {
+                await typeLine('INFO: Success! No high or critical severity vulnerabilities found.', 'success');
+            }
+            
+            finalizeRun();
+        }
+        
+        function finalizeRun() {
+            runButton.disabled = false;
+            runButton.classList.add('hover:bg-sky-500', 'hover:scale-105');
+            runButton.classList.remove('bg-slate-500', 'cursor-not-allowed');
+            // Remove blinking cursor at the end
+            const cursor = outputDiv.querySelector('.blinking-cursor');
+            if(cursor) cursor.remove();
+        }
+
+        function simulateHadolint(content) {
+            let output = '';
+            let success = true;
+            if (content.includes('apt-get upgrade')) {
+                output += 'Dockerfile:10 DL3005 "Do not use apt-get upgrade or dist-upgrade"\n';
+                success = true; // Often just a warning
+            }
+            if (content.includes('ADD .')) {
+                output += 'Dockerfile:13 DL3020 "Use COPY instead of ADD for files and folders"\n';
+                success = true; // Also a warning
+            }
+            if(output === '') {
+                 output = 'No linting issues found.';
+            }
+            return { success, output };
+        }
+
+        function simulateTrivy(content, imageName) {
+            if (content.includes('ubuntu:18.04')) {
+                return {
+                    foundVulnerabilities: true,
+                    report: `${imageName} (ubuntu 18.04)
+==================
+Total: 3 (HIGH: 2, CRITICAL: 1)
+
++------------------+------------------+----------+-------------------+---------------+---------------------------------------+
+|     LIBRARY      | VULNERABILITY ID | SEVERITY | INSTALLED VERSION | FIXED VERSION |                 TITLE                 |
++------------------+------------------+----------+-------------------+---------------+---------------------------------------+
+| apt              | CVE-2020-27350   | HIGH     | 1.6.12            | 1.6.14        | apt: integer overflows and            |
+|                  |                  |          |                   |               | underflows while parsing .deb packages|
++------------------+------------------+----------+-------------------+---------------+---------------------------------------+
+| curl             | CVE-2021-22946   | HIGH     | 7.58.0-2ubuntu3.8 | 7.58.0-2ubun… | curl: Protocol downgrade required     |
+|                  |                  |          |                   |               | for SMTP                            |
++------------------+------------------+----------+-------------------+---------------+---------------------------------------+
+| glibc            | CVE-2021-33574   | CRITICAL | 2.27-3ubuntu1.2   | 2.27-3ubuntu1.4 | glibc: Mismatched dual-write in       |
+|                  |                  |          |                   |                 | getcwd() may lead to buffer overflow  |
++------------------+------------------+----------+-------------------+---------------+---------------------------------------+
+`
+                };
+            }
+            return {
+                foundVulnerabilities: false,
+                report: `${imageName} (python 3.11.2-slim-bookworm)
+=====================================
+Total: 0 (HIGH: 0, CRITICAL: 0)
+`
+            };
+        }
+
+        const sleep = (ms) => new Promise(res => setTimeout(res, ms));
+
+        async function typeLine(line, type = 'info', addNewline = true) {
+            const lineSpan = document.createElement('span');
+            
+            // Set color based on type
+            const typeClasses = {
+                command: 'text-yellow-400',
+                info: 'text-cyan-400',
+                success: 'text-green-400',
+                warning: 'text-yellow-400',
+                error: 'text-red-400',
+                dim: 'text-slate-500'
+            }
+            lineSpan.className = typeClasses[type] || 'text-slate-200';
+
+            // remove existing cursor
+            const existingCursor = outputDiv.querySelector('.blinking-cursor');
+            if(existingCursor) existingCursor.remove();
+            
+            outputDiv.appendChild(lineSpan);
+            
+            for (let i = 0; i < line.length; i++) {
+                lineSpan.textContent += line[i];
+                outputDiv.scrollTop = outputDiv.scrollHeight;
+                await sleep(5);
+            }
+            
+            if (addNewline) {
+                outputDiv.appendChild(document.createElement('br'));
+            }
+            
+            const cursorSpan = document.createElement('span');
+            cursorSpan.className = 'blinking-cursor';
+            outputDiv.appendChild(cursorSpan);
+            outputDiv.scrollTop = outputDiv.scrollHeight;
+        }
+
+    </script>
+</body>
+</html>
